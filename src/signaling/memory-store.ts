@@ -1,12 +1,24 @@
+import { safeEqual } from "@/cloud/compare";
+import { MAX_CLOUD_UPDATES } from "@/cloud/limits";
+import { randomSecret } from "@/lib/room";
 import { MAILBOX_CAP, MAILBOX_TTL_MS, PEER_TTL_MS, type RosterEntry, type SignalEnvelope } from "@/types/signaling";
-import type { SignalingStore } from "@/signaling/store";
+import type { CloudPublic, CloudUnlocked, CloudWriteResult, SignalingStore } from "@/signaling/store";
 
 type Presence = { expiry: number; joinedAt: number };
 type StoredEnvelope = SignalEnvelope & { exp: number };
 
+type CloudRecord = {
+  signalSecret: string;
+  protected: boolean;
+  salt: string;
+  verifier: string;
+  updates: string[];
+};
+
 export class MemorySignalingStore implements SignalingStore {
   private presence = new Map<string, Map<string, Presence>>();
   private mailboxes = new Map<string, StoredEnvelope[]>();
+  private clouds = new Map<string, CloudRecord>();
 
   async heartbeat(env: string, roomId: string, peerId: string, now: number): Promise<void> {
     const room = this.roomPresence(env, roomId);
@@ -62,8 +74,88 @@ export class MemorySignalingStore implements SignalingStore {
     return room;
   }
 
+  async readCloud(env: string, roomId: string): Promise<CloudPublic> {
+    const record = this.cloud(env, roomId);
+    if (record.protected) return { protected: true, salt: record.salt };
+    return { protected: false, signalSecret: record.signalSecret, updates: [...record.updates] };
+  }
+
+  async unlockCloud(env: string, roomId: string, verifier: string): Promise<CloudUnlocked | null> {
+    const record = this.cloud(env, roomId);
+    if (record.protected && !safeEqual(record.verifier, verifier)) return null;
+    return {
+      signalSecret: record.signalSecret,
+      updates: [...record.updates],
+      salt: record.protected ? record.salt : null,
+    };
+  }
+
+  async appendCloud(env: string, roomId: string, update: string, verifier: string | null): Promise<CloudWriteResult> {
+    const record = this.cloud(env, roomId);
+    if (!this.allowsWrite(record, verifier)) return "denied";
+    if (record.updates.length >= MAX_CLOUD_UPDATES) return "full";
+    record.updates.push(update);
+    return "ok";
+  }
+
+  async compactCloud(
+    env: string,
+    roomId: string,
+    expectedLength: number,
+    snapshot: string,
+    verifier: string | null,
+  ): Promise<CloudWriteResult> {
+    const record = this.cloud(env, roomId);
+    if (!this.allowsWrite(record, verifier)) return "denied";
+    if (record.updates.length !== expectedLength) return "full";
+    record.updates = [snapshot];
+    return "ok";
+  }
+
+  async protectCloud(
+    env: string,
+    roomId: string,
+    salt: string,
+    verifier: string,
+    snapshot: string,
+    previousVerifier: string | null,
+  ): Promise<boolean> {
+    const record = this.cloud(env, roomId);
+    if (record.protected && (previousVerifier == null || !safeEqual(record.verifier, previousVerifier))) return false;
+    record.protected = true;
+    record.salt = salt;
+    record.verifier = verifier;
+    record.updates = [snapshot];
+    return true;
+  }
+
+  async unprotectCloud(env: string, roomId: string, verifier: string, snapshot: string): Promise<boolean> {
+    const record = this.cloud(env, roomId);
+    if (!record.protected || !safeEqual(record.verifier, verifier)) return false;
+    record.protected = false;
+    record.salt = "";
+    record.verifier = "";
+    record.updates = [snapshot];
+    return true;
+  }
+
   private mailboxKey(env: string, roomId: string, peerId: string): string {
     return `sig:${env}:${roomId}:mbox:${peerId}`;
+  }
+
+  private cloud(env: string, roomId: string): CloudRecord {
+    const key = `doc:${env}:${roomId}`;
+    let record = this.clouds.get(key);
+    if (!record) {
+      record = { signalSecret: randomSecret(), protected: false, salt: "", verifier: "", updates: [] };
+      this.clouds.set(key, record);
+    }
+    return record;
+  }
+
+  private allowsWrite(record: CloudRecord, verifier: string | null): boolean {
+    if (!record.protected) return true;
+    return verifier != null && safeEqual(record.verifier, verifier);
   }
 }
 

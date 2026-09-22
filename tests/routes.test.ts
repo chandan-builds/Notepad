@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { getCloud, postCloud } from "@/cloud/handlers";
+import { decryptBytes, derivePasswordKeys, encryptBytes, randomSalt } from "@/cloud/password";
 import { resetSignalingStoreForTests, signalingEnvironment } from "@/signaling/get-store";
 import { getPeers, getSignal, postPresence, postSignal } from "@/signaling/handlers";
+import { bytesToBase64 } from "@/lib/bytes";
 import { randomSecret } from "@/lib/room";
 import { MAX_SIGNAL_BODY_CHARS } from "@/types/signaling";
+import * as Y from "yjs";
 
 const peerA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const peerB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -68,6 +72,48 @@ describe("signaling routes", () => {
       setNodeEnv(previous);
       resetSignalingStoreForTests();
     }
+  });
+});
+
+describe("cloud routes", () => {
+  it("stores a note, then hides it until the password matches", async () => {
+    const roomId = randomSecret();
+    const created = await getCloud(roomId);
+    expect(created.status).toBe(200);
+    expect(created.headers.get("cache-control")).toBe("no-store");
+    const open = (await created.json()) as { protected: boolean; updates: string[] };
+    expect(open.protected).toBe(false);
+    expect(open.updates).toEqual([]);
+
+    const doc = new Y.Doc();
+    doc.getText("body").insert(0, "secret");
+    const salt = randomSalt();
+    const derived = await derivePasswordKeys("correct horse", salt);
+    const snapshot = await encryptBytes(derived.key, Y.encodeStateAsUpdate(doc));
+    const locked = await postCloud(
+      jsonRequest({ action: "protect", salt: bytesToBase64(salt), verifier: derived.verifier, snapshot }),
+      roomId,
+    );
+    expect(locked.status).toBe(200);
+
+    const hidden = await getCloud(roomId);
+    const body = (await hidden.json()) as { protected: boolean; salt: string; updates?: string[] };
+    expect(body).toEqual({ protected: true, salt: bytesToBase64(salt) });
+    expect(JSON.stringify(body)).not.toContain("secret");
+
+    const wrong = await postCloud(jsonRequest({ action: "unlock", verifier: `${"a".repeat(43)}=` }), roomId);
+    expect(wrong.status).toBe(401);
+
+    const denied = await postCloud(jsonRequest({ action: "append", update: "plaintext" }), roomId);
+    expect(denied.status).toBe(401);
+
+    const opened = await postCloud(jsonRequest({ action: "unlock", verifier: derived.verifier }), roomId);
+    expect(opened.status).toBe(200);
+    const unlocked = (await opened.json()) as { updates: string[] };
+    const bytes = await decryptBytes(derived.key, unlocked.updates[0]);
+    const next = new Y.Doc();
+    Y.applyUpdate(next, bytes!);
+    expect(next.getText("body").toString()).toBe("secret");
   });
 });
 

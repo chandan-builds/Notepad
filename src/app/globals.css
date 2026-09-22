@@ -200,9 +200,106 @@ h1 {
 .share:focus-visible,
 .text-button:focus-visible,
 .danger-button:focus-visible,
-.mark:focus-visible {
+.mark:focus-visible,
+input:focus-visible {
   outline: 2px solid var(--rule);
   outline-offset: 3px;
+}
+
+.share-code,
+.lock-form {
+  margin: 0 0 0.7rem 3.1rem;
+}
+
+.share-code {
+  color: var(--ink-soft);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.share-code code,
+.open-note input,
+.lock-form input,
+.gate-form input {
+  font-family: var(--font-mono), monospace;
+}
+
+.share-code code {
+  margin-left: 0.45rem;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 0.92rem;
+}
+
+.open-note {
+  margin-top: 1.4rem;
+  max-width: 36rem;
+}
+
+.open-note label,
+.lock-form label,
+.gate-form label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--ink-soft);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.open-row,
+.lock-form,
+.gate-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.open-note input,
+.lock-form input,
+.gate-form input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid rgba(28, 22, 18, 0.28);
+  background: transparent;
+  color: var(--ink);
+  padding: 0.45rem 0.1rem;
+  font-size: 1rem;
+}
+
+.lock-form,
+.gate-form {
+  align-items: end;
+}
+
+.lock-form {
+  margin-top: 0.2rem;
+}
+
+.gate-form {
+  margin: 1.4rem 0 0;
+  max-width: 28rem;
+}
+
+.field-hint,
+.field-error {
+  flex-basis: 100%;
+  margin: 0.15rem 0 0;
+  font-size: 0.92rem;
+}
+
+.field-hint {
+  color: var(--faint);
+}
+
+.field-error {
+  color: var(--rule);
 }
 
 .share-fallback {
@@ -362,6 +459,8 @@ h1 {
   .sheet-head,
   .banners,
   .share-fallback,
+  .share-code,
+  .lock-form,
   .sheet-foot {
     padding-left: 0.2rem;
     margin-left: 0;

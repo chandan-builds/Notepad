@@ -1,44 +1,97 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CollaborationSession } from "@/collaboration/session";
+import { CollaborationSession, type OpenedCloud } from "@/collaboration/session";
+import { fetchCloud, unlockCloud } from "@/cloud/client";
+import { derivePasswordKeys } from "@/cloud/password";
 import { MessagePage } from "@/components/MessagePage";
 import { NotepadShell } from "@/components/NotepadShell";
+import { PasswordGate } from "@/components/PasswordGate";
 import { NotepadEditor } from "@/editor/NotepadEditor";
 import { useSession } from "@/hooks/useSession";
-import { parseFragmentKey } from "@/lib/room";
+import { base64ToBytes } from "@/lib/bytes";
 
 export function NotepadApp({ roomId }: { roomId: string }) {
-  const [fragmentKey, setFragmentKey] = useState<string | null | undefined>(undefined);
+  const [cloud, setCloud] = useState<OpenedCloud | null>(null);
+  const [salt, setSalt] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"loading" | "password" | "ready" | "error">("loading");
+  const [passwordError, setPasswordError] = useState(false);
 
   useEffect(() => {
-    setFragmentKey(parseFragmentKey(window.location.hash));
-  }, []);
+    let alive = true;
+    fetchCloud(roomId)
+      .then((opened) => {
+        if (!alive) return;
+        if (opened.protected) {
+          setSalt(opened.salt);
+          setPhase("password");
+          return;
+        }
+        setCloud({
+          signalSecret: opened.signalSecret,
+          updates: opened.updates,
+          protectedNote: false,
+          passwordKey: null,
+          verifier: null,
+          salt: null,
+        });
+        setPhase("ready");
+      })
+      .catch(() => {
+        if (alive) setPhase("error");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [roomId]);
 
-  if (fragmentKey === undefined) {
+  async function unlock(password: string) {
+    if (!salt) return;
+    const saltBytes = base64ToBytes(salt);
+    if (!saltBytes) {
+      setPasswordError(true);
+      return;
+    }
+    const derived = await derivePasswordKeys(password, saltBytes);
+    const opened = await unlockCloud(roomId, derived.verifier);
+    if (!opened) {
+      setPasswordError(true);
+      return;
+    }
+    setPasswordError(false);
+    setCloud({
+      signalSecret: opened.signalSecret,
+      updates: opened.updates,
+      protectedNote: true,
+      passwordKey: derived.key,
+      verifier: derived.verifier,
+      salt,
+    });
+    setPhase("ready");
+  }
+
+  if (phase === "loading") {
+    return <MessagePage eyebrow="Field note" title="Opening the note…" body="Reading the copy saved in the cloud." />;
+  }
+
+  if (phase === "error") {
     return (
       <MessagePage
-        eyebrow="Field note"
-        title="Opening the note…"
-        body="Reading the link on this device."
+        eyebrow="Couldn’t open"
+        title="This note didn’t open."
+        body="Refresh the page. If it keeps failing, the cloud copy may be unreachable."
       />
     );
   }
 
-  if (fragmentKey === null) {
-    return (
-      <MessagePage
-        eyebrow="Link incomplete"
-        title="This page needs the full link."
-        body="The secret after the # never reaches the server, so it cannot be recovered from the address alone. Open the full link that was shared with you."
-      />
-    );
+  if (phase === "password" || !cloud) {
+    return <PasswordGate error={passwordError} onUnlock={unlock} />;
   }
 
-  return <LiveNotepad roomId={roomId} fragmentKey={fragmentKey} />;
+  return <LiveNotepad roomId={roomId} cloud={cloud} />;
 }
 
-function LiveNotepad({ roomId, fragmentKey }: { roomId: string; fragmentKey: string }) {
+function LiveNotepad({ roomId, cloud }: { roomId: string; cloud: OpenedCloud }) {
   const [session, setSession] = useState<CollaborationSession | null>(null);
   const [failed, setFailed] = useState(false);
   const snapshot = useSession(session);
@@ -46,7 +99,7 @@ function LiveNotepad({ roomId, fragmentKey }: { roomId: string; fragmentKey: str
   useEffect(() => {
     let alive = true;
     let current: CollaborationSession | null = null;
-    CollaborationSession.open(roomId, fragmentKey)
+    CollaborationSession.open(roomId, cloud)
       .then((opened) => {
         if (!alive) {
           opened.destroy();
@@ -63,7 +116,7 @@ function LiveNotepad({ roomId, fragmentKey }: { roomId: string; fragmentKey: str
       alive = false;
       current?.destroy();
     };
-  }, [roomId, fragmentKey]);
+  }, [roomId, cloud]);
 
   if (failed) {
     return (
@@ -77,11 +130,14 @@ function LiveNotepad({ roomId, fragmentKey }: { roomId: string; fragmentKey: str
 
   return (
     <NotepadShell
+      roomId={roomId}
       snapshot={snapshot}
       onRetry={() => session?.retryConnections()}
       onDelete={async () => {
         await session?.deleteLocalCopy();
       }}
+      onSetPassword={async (password) => (await session?.setPassword(password)) ?? false}
+      onClearPassword={async (password) => (await session?.clearPassword(password)) ?? false}
       editor={
         session && snapshot.ready ? (
           <NotepadEditor key={snapshot.epoch} doc={session.getDoc()} awareness={session.getAwareness()} />

@@ -3,8 +3,10 @@ import {
   base64UrlToBytes,
   createNoteAddress,
   isValidRoomId,
+  noteCodePath,
   notePath,
   parseFragmentKey,
+  parseShareCode,
   randomSecret,
 } from "@/lib/room";
 
@@ -15,6 +17,18 @@ describe("room secrets", () => {
     expect(parseFragmentKey(`#${key}`)).toBe(key);
     expect(base64UrlToBytes(roomId)?.byteLength).toBe(16);
     expect(notePath(roomId, key)).toBe(`/n/${roomId}#${key}`);
+    expect(noteCodePath(roomId)).toBe(`/n/${roomId}`);
+  });
+
+  it("reads a share code from the code itself or from a note link", () => {
+    const roomId = randomSecret();
+    expect(parseShareCode(roomId)).toBe(roomId);
+    expect(parseShareCode(`  ${roomId}  `)).toBe(roomId);
+    expect(parseShareCode(`https://notepad.example/n/${roomId}`)).toBe(roomId);
+    expect(parseShareCode(`https://notepad.example/n/${roomId}#old`)).toBe(roomId);
+    expect(parseShareCode(`/n/${roomId}`)).toBe(roomId);
+    expect(parseShareCode("not a code")).toBeNull();
+    expect(parseShareCode("")).toBeNull();
   });
 
   it("rejects a missing hash, the wrong length, padding, and a query stuck in the id", () => {

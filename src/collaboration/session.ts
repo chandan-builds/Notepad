@@ -2,6 +2,10 @@ import { Awareness } from "y-protocols/awareness";
 import type { IndexeddbPersistence } from "y-indexeddb";
 import * as Y from "yjs";
 import { SyncChannel } from "@/collaboration/sync-channel";
+import { protectCloud, unprotectCloud } from "@/cloud/client";
+import { derivePasswordKeys, encryptBytes, randomSalt } from "@/cloud/password";
+import { CLOUD_ORIGIN, CloudSync } from "@/cloud/sync";
+import { base64ToBytes, bytesToBase64 } from "@/lib/bytes";
 import { randomIdentity, type LocalIdentity } from "@/lib/identity";
 import { detectWebRTC } from "@/lib/support";
 import { openLocalDoc, wipeLocalDoc, type LocalDocStatus } from "@/persistence/local-doc";
@@ -39,6 +43,7 @@ export type SessionSnapshot = {
   banners: SessionBanner[];
   canShare: boolean;
   canRetry: boolean;
+  protectedNote: boolean;
 };
 
 type Listener = () => void;
@@ -53,6 +58,7 @@ const OPENING: SessionSnapshot = {
   banners: [],
   canShare: false,
   canRetry: false,
+  protectedNote: false,
 };
 
 export class CollaborationSession {
@@ -71,12 +77,20 @@ export class CollaborationSession {
   private signalingDown = false;
   private storageBanner: SessionBanner | null = null;
   private deletedBanner = false;
+  private cloud: CloudSync | null = null;
+  private passwordKey: CryptoKey | null = null;
+  private verifier: string | null = null;
+  private salt: string | null = null;
+  private protectedNote = false;
+  private cloudDown = false;
+  private poll: ReturnType<typeof setInterval> | null = null;
   private readonly webrtc: boolean;
   private readonly onAwareness = () => this.publish();
   private readonly onOnline = () => {
     this.offline = false;
     this.signaling?.refresh();
     this.mesh?.reconnectStale();
+    void this.refreshCloud();
     this.publish();
   };
   private readonly onOffline = () => {
@@ -87,9 +101,11 @@ export class CollaborationSession {
     if (document.visibilityState !== "visible") return;
     this.signaling?.refresh();
     this.mesh?.reconnectStale();
+    void this.refreshCloud();
     this.publish();
   };
   private readonly onPageHide = () => {
+    void this.cloud?.flush();
     this.awareness.setLocalState(null);
     this.mesh?.close();
     this.signaling?.leave();
@@ -123,9 +139,11 @@ export class CollaborationSession {
     this.doc.on("update", this.onDocUpdate);
   }
 
-  static async open(roomId: string, fragmentKey: string): Promise<CollaborationSession> {
+  static async open(roomId: string, cloud: OpenedCloud): Promise<CollaborationSession> {
     const peerId = crypto.randomUUID();
     const local = await openLocalDoc(roomId, new Y.Doc());
+    const cloudSync = new CloudSync(local.doc, roomId, cloud.passwordKey, cloud.verifier);
+    await cloudSync.applyEncoded(cloud.updates);
     const identity = await loadIdentity(local.persistence);
     const awareness = new Awareness(local.doc);
     awareness.setLocalStateField("user", identity);
@@ -143,8 +161,13 @@ export class CollaborationSession {
       null,
       webrtc,
     );
+    session.cloud = cloudSync;
+    session.passwordKey = cloud.passwordKey;
+    session.verifier = cloud.verifier;
+    session.salt = cloud.salt;
+    session.protectedNote = cloud.protectedNote;
     if (webrtc) {
-      const key = await deriveSignalingKey(fragmentKey, roomId);
+      const key = await deriveSignalingKey(cloud.signalSecret, roomId);
       signaling = new SignalingClient(roomId, peerId, key, {
         onRoster: (roster) => {
           mesh?.setRoster(roster);
@@ -185,6 +208,7 @@ export class CollaborationSession {
     this.bindLifecycle();
     this.signaling?.start();
     this.signaling?.setMailboxPolling(this.mesh?.needsMailbox() ?? false);
+    if (!this.poll) this.poll = setInterval(() => void this.refreshCloud(), 4_000);
     this.publish();
   }
 
@@ -211,8 +235,55 @@ export class CollaborationSession {
     this.publish();
   }
 
+  async setPassword(password: string): Promise<boolean> {
+    if (this.destroyed || password.length === 0) return false;
+    await this.cloud?.settle();
+    try {
+      const salt = randomSalt();
+      const derived = await derivePasswordKeys(password, salt);
+      const snapshot = await encryptBytes(derived.key, Y.encodeStateAsUpdate(this.doc));
+      const ok = await protectCloud(this.roomId, bytesToBase64(salt), derived.verifier, snapshot, this.verifier);
+      if (!ok || this.destroyed) return false;
+      this.passwordKey = derived.key;
+      this.verifier = derived.verifier;
+      this.salt = bytesToBase64(salt);
+      this.protectedNote = true;
+      this.cloud?.markProtected(derived.key, derived.verifier);
+      this.publish();
+      return true;
+    } finally {
+      this.cloud?.resume();
+      void this.cloud?.flush();
+    }
+  }
+
+  async clearPassword(password: string): Promise<boolean> {
+    if (this.destroyed || !this.salt || password.length === 0) return false;
+    await this.cloud?.settle();
+    try {
+      const saltBytes = base64ToBytes(this.salt);
+      if (!saltBytes) return false;
+      const derived = await derivePasswordKeys(password, saltBytes);
+      const snapshot = bytesToBase64(Y.encodeStateAsUpdate(this.doc));
+      const ok = await unprotectCloud(this.roomId, derived.verifier, snapshot);
+      if (!ok || this.destroyed) return false;
+      this.passwordKey = null;
+      this.verifier = null;
+      this.salt = null;
+      this.protectedNote = false;
+      this.cloud?.markOpen();
+      this.publish();
+      return true;
+    } finally {
+      this.cloud?.resume();
+      void this.cloud?.flush();
+    }
+  }
+
   async deleteLocalCopy(): Promise<void> {
     if (this.destroyed) return;
+    this.cloud?.destroy();
+    this.cloud = null;
     this.mesh?.close();
     for (const sync of this.syncs.values()) sync.destroy();
     this.syncs.clear();
@@ -230,6 +301,8 @@ export class CollaborationSession {
     this.awareness.setLocalStateField("user", identity);
     this.awareness.on("change", this.onAwareness);
     this.doc.on("update", this.onDocUpdate);
+    this.cloud = new CloudSync(this.doc, this.roomId, this.passwordKey, this.verifier);
+    void this.refreshCloud();
     this.deletedBanner = true;
     this.storageBanner = bannerForStorage(this.storageStatus);
     this.everConnected = false;
@@ -240,6 +313,9 @@ export class CollaborationSession {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (this.poll) clearInterval(this.poll);
+    this.poll = null;
+    this.cloud?.destroy();
     window.removeEventListener("online", this.onOnline);
     window.removeEventListener("offline", this.onOffline);
     document.removeEventListener("visibilitychange", this.onVisible);
@@ -254,6 +330,15 @@ export class CollaborationSession {
     this.doc.off("update", this.onDocUpdate);
     this.awareness.destroy();
     void this.persistence?.destroy();
+  }
+
+  private async refreshCloud(): Promise<void> {
+    const ok = await this.cloud?.pull();
+    if (this.destroyed || ok == null) return;
+    const down = !ok;
+    if (down === this.cloudDown) return;
+    this.cloudDown = down;
+    this.publish();
   }
 
   private bindLifecycle(): void {
@@ -281,8 +366,9 @@ export class CollaborationSession {
     this.publish();
   }
 
-  private readonly onDocUpdate = (_update: Uint8Array, origin: unknown) => {
-    if (origin === this.persistence) return;
+  private readonly onDocUpdate = (update: Uint8Array, origin: unknown) => {
+    if (origin === this.persistence || origin === CLOUD_ORIGIN) return;
+    this.cloud?.note(update);
     if (this.deletedBanner && origin && origin !== this) {
       this.deletedBanner = false;
       this.publish();
@@ -314,6 +400,7 @@ export class CollaborationSession {
       banners,
       canShare: true,
       canRetry: phase === "ice-failed" || phase === "signaling" || phase === "reconnecting",
+      protectedNote: this.protectedNote,
     };
     for (const listener of this.listeners) listener();
   }
@@ -340,7 +427,7 @@ export class CollaborationSession {
       banners.push({
         id: "deleted",
         tone: "info",
-        text: "Deleted the copy on this device. Other devices keep theirs. If someone is online, their text can sync back.",
+        text: "Deleted the copy on this device. The cloud copy can fill it back in, and other devices keep theirs.",
       });
     }
     if (mesh.roomFull) {
@@ -355,6 +442,13 @@ export class CollaborationSession {
         id: "ice",
         tone: "warn",
         text: "Couldn’t open a direct connection on this network. Changes stay on this device. A relay is not set up in this version.",
+      });
+    }
+    if (this.cloudDown) {
+      banners.push({
+        id: "cloud",
+        tone: "warn",
+        text: "The cloud copy isn’t reachable right now. You can keep typing on this device.",
       });
     }
     if (this.signalingDown && mesh.openChannels > 0) {
@@ -397,7 +491,7 @@ function copyFor(
   const people = peerCount === 1 ? "1 person" : `${peerCount} people`;
   switch (phase) {
     case "offline":
-      return { label: "Offline", detail: "Saved on this device." };
+      return { label: "Offline", detail: "Saved on this device. The cloud copy updates when you are back online." };
     case "signaling":
       return {
         label: "Reconnecting",
@@ -406,12 +500,12 @@ function copyFor(
     case "room-full":
       return {
         label: "On this device",
-        detail: "Saved on this device. Others see your changes only while you are connected.",
+        detail: "Saved in the cloud and on this device. Live sync stays off while the room is full.",
       };
     case "ice-failed":
       return {
         label: "No direct path",
-        detail: "Saved on this device. This network is blocking a direct connection.",
+        detail: "Saved in the cloud and on this device. This network is blocking a direct connection.",
       };
     case "connected":
       return {
@@ -427,7 +521,7 @@ function copyFor(
     default:
       return {
         label: "On this device",
-        detail: "Saved on this device. Others see your changes while you are both online.",
+        detail: "Saved in the cloud and on this device. Others see live edits while you are both online.",
       };
   }
 }
@@ -467,5 +561,14 @@ async function loadIdentity(persistence: IndexeddbPersistence | null): Promise<L
   await persistence.set("colorLight", identity.colorLight);
   return identity;
 }
+
+export type OpenedCloud = {
+  signalSecret: string;
+  updates: string[];
+  protectedNote: boolean;
+  passwordKey: CryptoKey | null;
+  verifier: string | null;
+  salt: string | null;
+};
 
 export const openingSnapshot = OPENING;

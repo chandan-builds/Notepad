@@ -45,6 +45,31 @@ export function notePath(roomId: string, key: string): string {
   return `/n/${roomId}#${key}`;
 }
 
+export function noteCodePath(roomId: string): string {
+  return `/n/${roomId}`;
+}
+
+/** Accepts a room code or a full note URL and returns the room id. */
+export function parseShareCode(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (isValidRoomId(trimmed)) return trimmed;
+  const candidate = trimmed.startsWith("/")
+    ? `https://local${trimmed}`
+    : trimmed.includes("://")
+      ? trimmed
+      : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    const match = url.pathname.match(/\/n\/([^/?#]+)/);
+    if (!match) return null;
+    const roomId = decodeURIComponent(match[1]);
+    return isValidRoomId(roomId) ? roomId : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Fragment keys are unpadded base64url. Padding, queries, and other shapes are rejected. */
 export function parseFragmentKey(hash: string): string | null {
   const raw = hash.startsWith("#") ? hash.slice(1) : hash;

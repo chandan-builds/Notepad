@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_CLOUD_UPDATES } from "@/cloud/limits";
 import { MemorySignalingStore } from "@/signaling/memory-store";
 import { storeMode } from "@/signaling/get-store";
 import { MAILBOX_CAP, MAILBOX_TTL_MS, PEER_TTL_MS } from "@/types/signaling";
@@ -51,6 +52,53 @@ describe("memory signaling store", () => {
     const store = new MemorySignalingStore();
     await store.post(env, roomId, { to: peerA, from: peerB, id: "old", body: "x" }, 0);
     expect(await store.drain(env, roomId, peerA, MAILBOX_TTL_MS)).toEqual([]);
+  });
+});
+
+describe("cloud log", () => {
+  const verifier = "v".repeat(44);
+  const other = "w".repeat(44);
+
+  it("hides updates after a password and rejects a compact with the wrong length", async () => {
+    const store = new MemorySignalingStore();
+    const created = await store.readCloud(env, roomId);
+    expect(created.protected).toBe(false);
+    if (created.protected) return;
+    expect(created.updates).toEqual([]);
+    expect(created.signalSecret).toHaveLength(22);
+
+    expect(await store.appendCloud(env, roomId, "plain-update", null)).toBe("ok");
+    expect(await store.protectCloud(env, roomId, "salt-value", verifier, "cipher-snapshot", null)).toBe(true);
+
+    const hidden = await store.readCloud(env, roomId);
+    expect(hidden).toEqual({ protected: true, salt: "salt-value" });
+    expect(await store.unlockCloud(env, roomId, other)).toBeNull();
+    expect(await store.appendCloud(env, roomId, "junk", null)).toBe("denied");
+    expect(await store.appendCloud(env, roomId, "junk", other)).toBe("denied");
+
+    const opened = await store.unlockCloud(env, roomId, verifier);
+    expect(opened?.updates).toEqual(["cipher-snapshot"]);
+    expect(opened?.signalSecret).toBe(created.signalSecret);
+
+    expect(await store.compactCloud(env, roomId, 2, "next", verifier)).toBe("full");
+    expect(await store.compactCloud(env, roomId, 1, "next", verifier)).toBe("ok");
+    expect(await store.protectCloud(env, roomId, "other-salt", other, "replaced", null)).toBe(false);
+    expect(await store.unprotectCloud(env, roomId, other, "plain")).toBe(false);
+    expect(await store.unprotectCloud(env, roomId, verifier, "plain-snapshot")).toBe(true);
+    const openAgain = await store.readCloud(env, roomId);
+    expect(openAgain.protected).toBe(false);
+    if (!openAgain.protected) expect(openAgain.updates).toEqual(["plain-snapshot"]);
+  });
+
+  it("stops accepting updates once the log is full", async () => {
+    const store = new MemorySignalingStore();
+    for (let index = 0; index < MAX_CLOUD_UPDATES; index += 1) {
+      expect(await store.appendCloud(env, "full-room", `u-${index}`, null)).toBe("ok");
+    }
+    expect(await store.appendCloud(env, "full-room", "overflow", null)).toBe("full");
+    const cloud = await store.readCloud(env, "full-room");
+    expect(cloud.protected).toBe(false);
+    if (!cloud.protected) expect(cloud.updates).toHaveLength(MAX_CLOUD_UPDATES);
   });
 });
 
