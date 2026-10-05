@@ -16,3 +16,9 @@ export function sanitizeSlug(value: string): string {
 export function isValidNoteSlug(value: string): boolean {
   return value.length > 0 && value.length <= SLUG_MAX && SLUG_REGEX.test(value) && !isValidRoomId(value);
 }
+
+/** The address segment created from the name chosen before a note opens. */
+export function linkSlugFromTitle(title: string): string | null {
+  const slug = sanitizeSlug(title);
+  return isValidNoteSlug(slug) ? slug : null;
+}

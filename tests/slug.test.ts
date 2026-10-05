@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomSecret } from "@/lib/room";
-import { isValidNoteSlug, sanitizeSlug } from "@/lib/slug";
+import { isValidNoteSlug, linkSlugFromTitle, sanitizeSlug } from "@/lib/slug";
 
 describe("note slugs", () => {
   it("turns a title into a path and rejects room ids", () => {
@@ -9,5 +9,7 @@ describe("note slugs", () => {
     expect(isValidNoteSlug("")).toBe(false);
     expect(isValidNoteSlug("-nope")).toBe(false);
     expect(isValidNoteSlug(randomSecret().toLowerCase())).toBe(false);
+    expect(linkSlugFromTitle("  Meeting Notes! ")).toBe("meeting-notes");
+    expect(linkSlugFromTitle("!!!")).toBeNull();
   });
 });

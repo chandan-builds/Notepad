@@ -10,10 +10,12 @@ import { NoteTabBar } from "@/components/NoteTabBar";
 import { StatusBar } from "@/components/StatusBar";
 import { NotepadEditor } from "@/editor/NotepadEditor";
 import { stripFormatting, type EditorCommand } from "@/editor/format";
+import { setNoteSlug, setNoteTitle } from "@/editor/note-model";
 import { useNoteModel } from "@/hooks/useNoteModel";
 import { EMPTY_SCROLL, useCanvasPip, type EditorScrollState } from "@/hooks/useCanvasPip";
 import { useSaveLabel } from "@/hooks/useSaveLabel";
 import { useTheme } from "@/hooks/useTheme";
+import { takePendingTitle } from "@/lib/pending-title";
 import { isValidNoteSlug, sanitizeSlug } from "@/lib/slug";
 
 type NotepadShellProps = {
@@ -75,6 +77,17 @@ export function NotepadShell({
     }
     if (note.slug) setSlugInput(note.slug);
   }, [note.slug, pathSegment, slugTouched]);
+
+  useEffect(() => {
+    if (!doc || !snapshot.ready || !isValidNoteSlug(pathSegment)) return;
+    const pending = takePendingTitle(pathSegment);
+    if (!pending) return;
+    const current = doc.getMap("meta").get("title");
+    if (typeof current !== "string" || current.trim() === "" || current === "Untitled Note") {
+      setNoteTitle(doc, pending);
+    }
+    if (doc.getMap("meta").get("slug") !== pathSegment) setNoteSlug(doc, pathSegment);
+  }, [doc, pathSegment, snapshot.ready]);
 
   async function copyUrl() {
     try {
