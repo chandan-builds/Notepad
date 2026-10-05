@@ -1,5 +1,6 @@
 import { Fraunces, IBM_Plex_Mono, Literata } from "next/font/google";
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 const display = Fraunces({
@@ -23,13 +24,18 @@ const mono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Notepad",
-  description: "A shared plain-text note that stays on the devices that open it.",
+  description: "A note with formatting, tabs, a custom path, and a copy that stays on the devices that open it.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${display.variable} ${text.variable} ${mono.variable}`}>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${display.variable} ${text.variable} ${mono.variable}`}>
+        <Script id="notepad-theme" strategy="beforeInteractive">
+          {`try{var t=localStorage.getItem("notepadly-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}`}
+        </Script>
+        {children}
+      </body>
     </html>
   );
 }

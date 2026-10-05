@@ -15,6 +15,23 @@
   color-scheme: light;
 }
 
+[data-theme="dark"] {
+  --desk: #14110e;
+  --desk-deep: #0c0a08;
+  --paper: #241e18;
+  --paper-edge: #3a3128;
+  --ink: #f6efe4;
+  --ink-soft: #cbbba8;
+  --faint: #8d7d6c;
+  --rule: #e07a5f;
+  --brass: #d4b483;
+  --ok: #7dcea0;
+  --warn-bg: #3a2a22;
+  --info-bg: #1e2e28;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -345,13 +362,17 @@ input:focus-visible {
   background: var(--info-bg);
 }
 
-.editor-slot,
-.editor-host {
+.editor-slot {
   flex: 1;
   min-height: 18rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
 }
 
 .editor-host {
+  flex: 1;
+  min-height: 12rem;
   position: relative;
 }
 
@@ -437,6 +458,263 @@ input:focus-visible {
   margin-top: 0.45rem;
 }
 
+.title-field,
+.path-row,
+.path-error {
+  margin-left: 3.1rem;
+}
+
+.title-field {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 0.35rem;
+}
+
+.title-field span,
+.path-row span {
+  color: var(--ink-soft);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.title-field input,
+.path-row input,
+.note-tab input {
+  border: 0;
+  border-bottom: 1px solid rgba(28, 22, 18, 0.28);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.title-field input {
+  font-family: var(--font-display), serif;
+  font-size: 1.55rem;
+  padding: 0.15rem 0.1rem 0.3rem;
+}
+
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.7rem;
+}
+
+.path-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.1rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.95rem;
+}
+
+.path-error {
+  margin-top: -0.35rem;
+  margin-bottom: 0.7rem;
+}
+
+.text-button:disabled,
+.tool:disabled,
+.tab-add:disabled,
+.live-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-left: 3.1rem;
+}
+
+.tool,
+.live-toggle,
+.meta-pill,
+.tab-add {
+  border: 1px solid rgba(28, 22, 18, 0.16);
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tool {
+  min-width: 2.1rem;
+  height: 2rem;
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.82rem;
+}
+
+.tool.bold {
+  font-weight: 700;
+}
+
+.tool.italic {
+  font-style: italic;
+  font-family: var(--font-text), serif;
+}
+
+.tool.underline {
+  text-decoration: underline;
+}
+
+.tool:hover:not(:disabled),
+.live-toggle:hover,
+.tab-add:hover:not(:disabled),
+.note-tab:hover {
+  border-color: rgba(196, 73, 44, 0.55);
+}
+
+.editor-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: 3.1rem;
+}
+
+.meta-pill,
+.live-toggle {
+  border-radius: 999px;
+  padding: 0.28rem 0.65rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.meta-pill.words {
+  margin-left: auto;
+}
+
+.tab-bar {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tab-strip {
+  display: flex;
+  min-width: 0;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.note-tab {
+  display: flex;
+  height: 2rem;
+  min-width: 5.5rem;
+  max-width: 11rem;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.45rem;
+  border: 1px solid rgba(28, 22, 18, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.28);
+  color: var(--ink-soft);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.note-tab span,
+.note-tab input {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.note-tab input {
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+}
+
+.note-tab.is-active {
+  border-color: rgba(196, 73, 44, 0.7);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--rule);
+}
+
+.note-tab.is-drop {
+  border-color: var(--rule);
+}
+
+.note-tab button,
+.tab-add {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.tab-add {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  border: 1px solid rgba(28, 22, 18, 0.16);
+  font-size: 1.1rem;
+}
+
+[data-theme="dark"] body {
+  background-image:
+    radial-gradient(ellipse at 18% -10%, rgba(224, 122, 95, 0.14), transparent 46%),
+    radial-gradient(ellipse at 90% 110%, rgba(0, 0, 0, 0.55), transparent 42%),
+    linear-gradient(180deg, #1a1511 0%, var(--desk) 38%, var(--desk-deep) 100%);
+}
+
+[data-theme="dark"] .sheet {
+  background:
+    linear-gradient(90deg, rgba(224, 122, 95, 0.55) 0 1px, transparent 1px) 2.55rem 0 / 1px 100% no-repeat,
+    linear-gradient(180deg, #2c261f 0%, var(--paper) 18%, #1a1612 100%);
+  box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .tool,
+[data-theme="dark"] .live-toggle,
+[data-theme="dark"] .meta-pill,
+[data-theme="dark"] .tab-add,
+[data-theme="dark"] .note-tab {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(246, 239, 228, 0.16);
+}
+
+[data-theme="dark"] .note-tab.is-active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .title-field input,
+[data-theme="dark"] .path-row input,
+[data-theme="dark"] .lock-form input,
+[data-theme="dark"] .gate-form input,
+[data-theme="dark"] .open-note input {
+  border-bottom-color: rgba(246, 239, 228, 0.28);
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -461,8 +739,21 @@ input:focus-visible {
   .share-fallback,
   .share-code,
   .lock-form,
-  .sheet-foot {
+  .sheet-foot,
+  .title-field,
+  .path-row,
+  .path-error,
+  .toolbar,
+  .editor-meta {
     padding-left: 0.2rem;
+    margin-left: 0;
+  }
+
+  .editor-meta {
+    align-items: stretch;
+  }
+
+  .meta-pill.words {
     margin-left: 0;
   }
 

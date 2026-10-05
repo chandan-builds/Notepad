@@ -22,6 +22,7 @@ export class Mesh {
   private links = new Map<string, PeerLink>();
   private remoteIds = new Set<string>();
   private lastRoster: RosterEntry[] = [];
+  private paused = false;
   roomFull = false;
 
   constructor(
@@ -30,8 +31,21 @@ export class Mesh {
     private readonly hooks: MeshHooks,
   ) {}
 
+  setPaused(paused: boolean): void {
+    if (this.paused === paused) return;
+    this.paused = paused;
+    if (paused) {
+      this.closeLinks();
+      this.remoteIds = new Set();
+      this.hooks.onChange();
+      return;
+    }
+    this.setRoster(this.lastRoster);
+  }
+
   setRoster(roster: RosterEntry[]): void {
     this.lastRoster = roster;
+    if (this.paused) return;
     const admission = admitPeers(roster, this.localId, ROOM_PEER_CAP);
     this.roomFull = admission.roomFull;
     if (admission.roomFull) {
@@ -52,7 +66,7 @@ export class Mesh {
   }
 
   receive(from: string, payload: SignalPayload): void {
-    if (this.roomFull || from === this.localId) return;
+    if (this.paused || this.roomFull || from === this.localId) return;
     if (this.remoteIds.size > 0 && !this.remoteIds.has(from) && !this.links.has(from)) return;
     if (!this.links.has(from)) {
       if (this.links.size >= ROOM_PEER_CAP - 1) return;
@@ -71,7 +85,7 @@ export class Mesh {
   }
 
   reconnectStale(): void {
-    if (this.roomFull) return;
+    if (this.paused || this.roomFull) return;
     if (this.links.size === 0 && this.lastRoster.length > 0) {
       this.setRoster(this.lastRoster);
       return;

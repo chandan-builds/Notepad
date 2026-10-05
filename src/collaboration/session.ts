@@ -44,6 +44,8 @@ export type SessionSnapshot = {
   canShare: boolean;
   canRetry: boolean;
   protectedNote: boolean;
+  liveEnabled: boolean;
+  cloudDown: boolean;
 };
 
 type Listener = () => void;
@@ -59,6 +61,8 @@ const OPENING: SessionSnapshot = {
   canShare: false,
   canRetry: false,
   protectedNote: false,
+  liveEnabled: true,
+  cloudDown: false,
 };
 
 export class CollaborationSession {
@@ -83,6 +87,7 @@ export class CollaborationSession {
   private salt: string | null = null;
   private protectedNote = false;
   private cloudDown = false;
+  private liveEnabled = true;
   private poll: ReturnType<typeof setInterval> | null = null;
   private readonly webrtc: boolean;
   private readonly onAwareness = () => this.publish();
@@ -230,8 +235,24 @@ export class CollaborationSession {
   }
 
   retryConnections(): void {
+    if (!this.liveEnabled) return;
     this.signaling?.refresh();
     this.mesh?.retryFailed();
+    this.publish();
+  }
+
+  setLiveEnabled(enabled: boolean): void {
+    if (this.destroyed || this.liveEnabled === enabled) return;
+    this.liveEnabled = enabled;
+    if (enabled) {
+      this.signaling?.start();
+      this.mesh?.setPaused(false);
+      this.signaling?.setMailboxPolling(this.mesh?.needsMailbox() ?? false);
+      this.signaling?.refresh();
+    } else {
+      this.mesh?.setPaused(true);
+      this.signaling?.pause();
+    }
     this.publish();
   }
 
@@ -388,7 +409,9 @@ export class CollaborationSession {
       },
       mesh,
     );
-    const copy = copyFor(phase, this.peerCount(), this.signalingDown && mesh.openChannels > 0);
+    const copy = this.liveEnabled
+      ? copyFor(phase, this.peerCount(), this.signalingDown && mesh.openChannels > 0)
+      : { label: "Live off", detail: "Saved in the cloud and on this device. Live editing is paused." };
     const banners = this.banners(mesh, phase);
     this.snapshot = {
       ready: true,
@@ -399,8 +422,10 @@ export class CollaborationSession {
       peerCount: this.peerCount(),
       banners,
       canShare: true,
-      canRetry: phase === "ice-failed" || phase === "signaling" || phase === "reconnecting",
+      canRetry: this.liveEnabled && (phase === "ice-failed" || phase === "signaling" || phase === "reconnecting"),
       protectedNote: this.protectedNote,
+      liveEnabled: this.liveEnabled,
+      cloudDown: this.cloudDown,
     };
     for (const listener of this.listeners) listener();
   }

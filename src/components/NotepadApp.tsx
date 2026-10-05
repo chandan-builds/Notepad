@@ -7,11 +7,10 @@ import { derivePasswordKeys } from "@/cloud/password";
 import { MessagePage } from "@/components/MessagePage";
 import { NotepadShell } from "@/components/NotepadShell";
 import { PasswordGate } from "@/components/PasswordGate";
-import { NotepadEditor } from "@/editor/NotepadEditor";
 import { useSession } from "@/hooks/useSession";
 import { base64ToBytes } from "@/lib/bytes";
 
-export function NotepadApp({ roomId }: { roomId: string }) {
+export function NotepadApp({ roomId, pathSegment }: { roomId: string; pathSegment: string }) {
   const [cloud, setCloud] = useState<OpenedCloud | null>(null);
   const [salt, setSalt] = useState<string | null>(null);
   const [phase, setPhase] = useState<"loading" | "password" | "ready" | "error">("loading");
@@ -88,10 +87,10 @@ export function NotepadApp({ roomId }: { roomId: string }) {
     return <PasswordGate error={passwordError} onUnlock={unlock} />;
   }
 
-  return <LiveNotepad roomId={roomId} cloud={cloud} />;
+  return <LiveNotepad roomId={roomId} pathSegment={pathSegment} cloud={cloud} />;
 }
 
-function LiveNotepad({ roomId, cloud }: { roomId: string; cloud: OpenedCloud }) {
+function LiveNotepad({ roomId, pathSegment, cloud }: { roomId: string; pathSegment: string; cloud: OpenedCloud }) {
   const [session, setSession] = useState<CollaborationSession | null>(null);
   const [failed, setFailed] = useState(false);
   const snapshot = useSession(session);
@@ -131,6 +130,9 @@ function LiveNotepad({ roomId, cloud }: { roomId: string; cloud: OpenedCloud }) 
   return (
     <NotepadShell
       roomId={roomId}
+      pathSegment={pathSegment}
+      doc={session?.getDoc() ?? null}
+      awareness={session?.getAwareness() ?? null}
       snapshot={snapshot}
       onRetry={() => session?.retryConnections()}
       onDelete={async () => {
@@ -138,11 +140,7 @@ function LiveNotepad({ roomId, cloud }: { roomId: string; cloud: OpenedCloud }) 
       }}
       onSetPassword={async (password) => (await session?.setPassword(password)) ?? false}
       onClearPassword={async (password) => (await session?.clearPassword(password)) ?? false}
-      editor={
-        session && snapshot.ready ? (
-          <NotepadEditor key={snapshot.epoch} doc={session.getDoc()} awareness={session.getAwareness()} />
-        ) : null
-      }
+      onSetLive={(enabled) => session?.setLiveEnabled(enabled)}
     />
   );
 }

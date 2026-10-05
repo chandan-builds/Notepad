@@ -37,4 +37,6 @@ export interface SignalingStore {
     previousVerifier: string | null,
   ): Promise<boolean>;
   unprotectCloud(env: string, roomId: string, verifier: string, snapshot: string): Promise<boolean>;
+  claimPath(env: string, roomId: string, slug: string): Promise<"ok" | "taken">;
+  resolvePath(env: string, slug: string): Promise<string | null>;
 }

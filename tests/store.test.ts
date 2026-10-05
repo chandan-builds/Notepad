@@ -102,6 +102,18 @@ describe("cloud log", () => {
   });
 });
 
+describe("custom paths", () => {
+  it("claims a path, replaces the previous one, and rejects a path owned by another note", async () => {
+    const store = new MemorySignalingStore();
+    expect(await store.claimPath(env, roomId, "weekly-plan")).toBe("ok");
+    expect(await store.resolvePath(env, "weekly-plan")).toBe(roomId);
+    expect(await store.claimPath(env, roomId, "monday-plan")).toBe("ok");
+    expect(await store.resolvePath(env, "weekly-plan")).toBeNull();
+    expect(await store.resolvePath(env, "monday-plan")).toBe(roomId);
+    expect(await store.claimPath(env, "other-room", "monday-plan")).toBe("taken");
+  });
+});
+
 describe("store mode", () => {
   it("uses memory in development and refuses a hosted deploy without Redis", () => {
     expect(storeMode({ nodeEnv: "development" })).toBe("memory");

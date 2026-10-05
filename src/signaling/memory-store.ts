@@ -19,6 +19,8 @@ export class MemorySignalingStore implements SignalingStore {
   private presence = new Map<string, Map<string, Presence>>();
   private mailboxes = new Map<string, StoredEnvelope[]>();
   private clouds = new Map<string, CloudRecord>();
+  private paths = new Map<string, string>();
+  private roomPaths = new Map<string, string>();
 
   async heartbeat(env: string, roomId: string, peerId: string, now: number): Promise<void> {
     const room = this.roomPresence(env, roomId);
@@ -127,6 +129,22 @@ export class MemorySignalingStore implements SignalingStore {
     record.verifier = verifier;
     record.updates = [snapshot];
     return true;
+  }
+
+  async claimPath(env: string, roomId: string, slug: string): Promise<"ok" | "taken"> {
+    const key = `${env}:${slug}`;
+    const owner = this.paths.get(key);
+    if (owner && owner !== roomId) return "taken";
+    const roomKey = `${env}:${roomId}`;
+    const previous = this.roomPaths.get(roomKey);
+    if (previous && previous !== slug) this.paths.delete(`${env}:${previous}`);
+    this.paths.set(key, roomId);
+    this.roomPaths.set(roomKey, slug);
+    return "ok";
+  }
+
+  async resolvePath(env: string, slug: string): Promise<string | null> {
+    return this.paths.get(`${env}:${slug}`) ?? null;
   }
 
   async unprotectCloud(env: string, roomId: string, verifier: string, snapshot: string): Promise<boolean> {

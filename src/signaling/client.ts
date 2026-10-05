@@ -18,6 +18,7 @@ type SignalingHandlers = {
 
 export class SignalingClient {
   private stopped = false;
+  private running = false;
   private heartbeatTimer = 0;
   private peerTimer = 0;
   private mailboxTimer = 0;
@@ -33,14 +34,30 @@ export class SignalingClient {
   ) {}
 
   start(): void {
+    if (this.stopped || this.running) return;
+    this.running = true;
     void this.heartbeat();
     void this.pollPeers();
     this.heartbeatTimer = window.setInterval(() => void this.heartbeat(), HEARTBEAT_MS);
     this.peerTimer = window.setInterval(() => void this.pollPeers(), PEER_POLL_MS);
   }
 
+  pause(): void {
+    if (this.stopped || !this.running) return;
+    this.running = false;
+    window.clearInterval(this.heartbeatTimer);
+    window.clearInterval(this.peerTimer);
+    window.clearInterval(this.mailboxTimer);
+    this.heartbeatTimer = 0;
+    this.peerTimer = 0;
+    this.mailboxTimer = 0;
+    this.mailboxOn = false;
+    this.leave();
+  }
+
   stop(): void {
     this.stopped = true;
+    this.running = false;
     window.clearInterval(this.heartbeatTimer);
     window.clearInterval(this.peerTimer);
     window.clearInterval(this.mailboxTimer);
@@ -48,14 +65,14 @@ export class SignalingClient {
   }
 
   refresh(): void {
-    if (this.stopped) return;
+    if (this.stopped || !this.running) return;
     void this.heartbeat();
     void this.pollPeers();
     if (this.mailboxOn) void this.pollMailbox();
   }
 
   setMailboxPolling(on: boolean): void {
-    if (this.stopped || on === this.mailboxOn) return;
+    if (this.stopped || !this.running || on === this.mailboxOn) return;
     this.mailboxOn = on;
     window.clearInterval(this.mailboxTimer);
     this.mailboxTimer = 0;
@@ -70,7 +87,7 @@ export class SignalingClient {
   }
 
   async post(to: string, payload: SignalPayload): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || !this.running) return;
     try {
       const body = await encryptBody(this.key, JSON.stringify(payload));
       if (body.length > MAX_SIGNAL_BODY_CHARS) return;
@@ -93,7 +110,7 @@ export class SignalingClient {
   }
 
   private async heartbeat(): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || !this.running) return;
     try {
       const response = await fetch(`/api/rooms/${this.roomId}/presence`, {
         method: "POST",
@@ -101,6 +118,7 @@ export class SignalingClient {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ peerId: this.peerId }),
       });
+      if (this.stopped || !this.running) return;
       if (!response.ok) throw new Error("presence failed");
       const data = (await response.json()) as { roster?: RosterEntry[] };
       if (Array.isArray(data.roster)) this.handlers.onRoster(data.roster);
@@ -111,12 +129,13 @@ export class SignalingClient {
   }
 
   private async pollPeers(): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || !this.running) return;
     try {
       const response = await fetch(
         `/api/rooms/${this.roomId}/peers?peerId=${encodeURIComponent(this.peerId)}`,
         { cache: "no-store" },
       );
+      if (this.stopped || !this.running) return;
       if (!response.ok) throw new Error("peers failed");
       const data = (await response.json()) as { roster?: RosterEntry[] };
       if (Array.isArray(data.roster)) this.handlers.onRoster(data.roster);
@@ -127,7 +146,7 @@ export class SignalingClient {
   }
 
   private async pollMailbox(): Promise<void> {
-    if (this.stopped || !this.mailboxOn) return;
+    if (this.stopped || !this.running || !this.mailboxOn) return;
     try {
       const response = await fetch(
         `/api/rooms/${this.roomId}/signal?peerId=${encodeURIComponent(this.peerId)}`,

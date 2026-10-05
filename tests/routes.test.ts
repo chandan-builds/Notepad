@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getCloud, postCloud } from "@/cloud/handlers";
+import { claimNotePath, resolveNotePath } from "@/lib/note-path";
 import { decryptBytes, derivePasswordKeys, encryptBytes, randomSalt } from "@/cloud/password";
 import { resetSignalingStoreForTests, signalingEnvironment } from "@/signaling/get-store";
 import { getPeers, getSignal, postPresence, postSignal } from "@/signaling/handlers";
@@ -114,6 +115,22 @@ describe("cloud routes", () => {
     const next = new Y.Doc();
     Y.applyUpdate(next, bytes!);
     expect(next.getText("body").toString()).toBe("secret");
+  });
+
+  it("claims a custom path and refuses a second note that wants it", async () => {
+    const roomId = randomSecret();
+    const other = randomSecret();
+    const claimed = await claimNotePath(jsonRequest({ slug: "Team Notes" }), roomId);
+    expect(claimed.status).toBe(200);
+    expect(await claimed.json()).toEqual({ slug: "team-notes" });
+    expect(await resolveNotePath("team-notes")).toBe(roomId);
+
+    const taken = await claimNotePath(jsonRequest({ slug: "team-notes" }), other);
+    expect(taken.status).toBe(409);
+    expect(await resolveNotePath("team-notes")).toBe(roomId);
+
+    const reserved = await claimNotePath(jsonRequest({ slug: "abcdefghijklmnopqrstuv" }), roomId);
+    expect(reserved.status).toBe(400);
   });
 });
 

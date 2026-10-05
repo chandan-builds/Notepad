@@ -27,6 +27,14 @@ function logKey(env: string, roomId: string): string {
   return `doc:${env}:${roomId}:log`;
 }
 
+function pathKey(env: string, slug: string): string {
+  return `path:${env}:${slug}`;
+}
+
+function roomPathKey(env: string, roomId: string): string {
+  return `pathof:${env}:${roomId}`;
+}
+
 type CloudMeta = { signalSecret: string; protected: boolean; salt: string; verifier: string };
 
 function asEnvelope(value: unknown): StoredEnvelope | null {
@@ -170,6 +178,24 @@ export class RedisSignalingStore implements SignalingStore {
     await this.redis.del(key);
     await this.redis.rpush(key, snapshot);
     return true;
+  }
+
+  async claimPath(env: string, roomId: string, slug: string): Promise<"ok" | "taken"> {
+    const key = pathKey(env, slug);
+    const owner = await this.redis.get<string>(key);
+    if (typeof owner === "string" && owner.length > 0 && owner !== roomId) return "taken";
+    const previous = await this.redis.get<string>(roomPathKey(env, roomId));
+    if (typeof previous === "string" && previous.length > 0 && previous !== slug) {
+      await this.redis.del(pathKey(env, previous));
+    }
+    await this.redis.set(key, roomId);
+    await this.redis.set(roomPathKey(env, roomId), slug);
+    return "ok";
+  }
+
+  async resolvePath(env: string, slug: string): Promise<string | null> {
+    const owner = await this.redis.get<string>(pathKey(env, slug));
+    return typeof owner === "string" && owner.length > 0 ? owner : null;
   }
 
   async unprotectCloud(env: string, roomId: string, verifier: string, snapshot: string): Promise<boolean> {
