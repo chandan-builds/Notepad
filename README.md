@@ -24,8 +24,10 @@ Set these on the Vercel project. Preview and production refuse to signal if Redi
 UPSTASH_REDIS_REST_URL
 UPSTASH_REDIS_REST_TOKEN
 NEXT_PUBLIC_STUN_URLS=stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302
+CLOUDFLARE_TURN_KEY_ID
+CLOUDFLARE_TURN_KEY_API_TOKEN
 ```
 
 Redis stores the note, an optional password check, and short-lived signaling envelopes. A password is checked in the browser; the cloud copy of a locked note is encrypted before it is saved.
 
-Version 1 uses STUN only. If a network cannot open a direct peer connection, the note stays on the device and the page says so.
+The Cloudflare values come from the dashboard under Realtime → TURN. They stay on the server and mint a 12-hour relay credential when a note opens. Without them, people on networks that block a direct connection still sync through the cloud copy, a second or two later. After adding the variables, redeploy so the live deployment picks them up.
