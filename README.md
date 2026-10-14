@@ -26,8 +26,12 @@ UPSTASH_REDIS_REST_TOKEN
 NEXT_PUBLIC_STUN_URLS=stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302
 CLOUDFLARE_TURN_KEY_ID
 CLOUDFLARE_TURN_KEY_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_ANALYTICS_API_TOKEN
 ```
 
 Redis stores the note, an optional password check, and short-lived signaling envelopes. A password is checked in the browser; the cloud copy of a locked note is encrypted before it is saved.
 
-The Cloudflare values come from the dashboard under Realtime → TURN. They stay on the server and mint a 12-hour relay credential when a note opens. Without them, people on networks that block a direct connection still sync through the cloud copy, a second or two later. After adding the variables, redeploy so the live deployment picks them up.
+The TURN key comes from the dashboard under Realtime → TURN. It stays on the server and mints a 12-hour relay credential when a note opens. Without it, people on networks that block a direct connection still sync through the cloud copy, a second or two later.
+
+The account id and analytics token enforce the Realtime free allowance: 1,000 GB of TURN egress each UTC month. Create the token under My Profile → API Tokens with Account Analytics Read. At the cap, new notes stop using the relay and fall back to a direct connection, then the cloud copy if that cannot open. A connection that already has a credential keeps it until that credential expires. After adding the variables, redeploy so the live deployment picks them up.
