@@ -424,6 +424,7 @@ export function NotepadShell({
 function liveLabel(enabled: boolean, phase: SessionPhase): string {
   if (!enabled) return "Live Off";
   if (phase === "connecting" || phase === "reconnecting") return "Live Connecting";
-  if (phase === "ice-failed" || phase === "signaling" || phase === "offline" || phase === "room-full") return "Live Error";
+  if (phase === "ice-failed") return "Live via Cloud";
+  if (phase === "signaling" || phase === "offline" || phase === "room-full") return "Live Error";
   return "Live On";
 }

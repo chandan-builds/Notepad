@@ -11,8 +11,11 @@ import { detectWebRTC } from "@/lib/support";
 import { openLocalDoc, wipeLocalDoc, type LocalDocStatus } from "@/persistence/local-doc";
 import { deriveSignalingKey } from "@/signaling/crypto";
 import { SignalingClient } from "@/signaling/client";
-import { iceServers } from "@/webrtc/ice";
+import { loadIceServers } from "@/webrtc/ice";
 import { Mesh, type MeshSnapshot } from "@/webrtc/mesh";
+
+const CLOUD_IDLE_POLL_MS = 4_000;
+const CLOUD_RELAY_POLL_MS = 1_000;
 
 export type BannerTone = "warn" | "info";
 
@@ -89,6 +92,8 @@ export class CollaborationSession {
   private cloudDown = false;
   private liveEnabled = true;
   private poll: ReturnType<typeof setInterval> | null = null;
+  private pollMs = 0;
+  private started = false;
   private readonly webrtc: boolean;
   private readonly onAwareness = () => this.publish();
   private readonly onOnline = () => {
@@ -192,7 +197,7 @@ export class CollaborationSession {
           session.publish();
         },
       });
-      mesh = new Mesh(peerId, iceServers(), {
+      mesh = new Mesh(peerId, await loadIceServers(), {
         send: (to, payload) => void signaling?.post(to, payload),
         onChannel: (id, channel) => session.attachChannel(id, channel),
         onChannelClosed: (id) => session.detachChannel(id),
@@ -213,8 +218,15 @@ export class CollaborationSession {
     this.bindLifecycle();
     this.signaling?.start();
     this.signaling?.setMailboxPolling(this.mesh?.needsMailbox() ?? false);
-    if (!this.poll) this.poll = setInterval(() => void this.refreshCloud(), 4_000);
+    this.started = true;
     this.publish();
+  }
+
+  private setPollRate(ms: number): void {
+    if (!this.started || this.destroyed || (this.poll && this.pollMs === ms)) return;
+    if (this.poll) clearInterval(this.poll);
+    this.pollMs = ms;
+    this.poll = setInterval(() => void this.refreshCloud(), ms);
   }
 
   getDoc(): Y.Doc {
@@ -409,8 +421,12 @@ export class CollaborationSession {
       },
       mesh,
     );
+    // Without a direct channel, edits still reach other people through the cloud copy; poll it faster.
+    const viaCloud = this.liveEnabled && !mesh.roomFull && mesh.remotePeers > 0 && mesh.openChannels === 0;
+    this.setPollRate(viaCloud ? CLOUD_RELAY_POLL_MS : CLOUD_IDLE_POLL_MS);
+    const peerCount = this.liveEnabled ? Math.max(this.peerCount(), mesh.remotePeers + 1) : this.peerCount();
     const copy = this.liveEnabled
-      ? copyFor(phase, this.peerCount(), this.signalingDown && mesh.openChannels > 0)
+      ? copyFor(phase, peerCount, this.signalingDown && mesh.openChannels > 0)
       : { label: "Live off", detail: "Saved in the cloud and on this device. Live editing is paused." };
     const banners = this.banners(mesh, phase);
     this.snapshot = {
@@ -419,7 +435,7 @@ export class CollaborationSession {
       phase,
       statusLabel: copy.label,
       statusDetail: copy.detail,
-      peerCount: this.peerCount(),
+      peerCount,
       banners,
       canShare: true,
       canRetry: this.liveEnabled && (phase === "ice-failed" || phase === "signaling" || phase === "reconnecting"),
@@ -465,8 +481,8 @@ export class CollaborationSession {
     if (phase === "ice-failed") {
       banners.push({
         id: "ice",
-        tone: "warn",
-        text: "Couldn’t open a direct connection on this network. Changes stay on this device. A relay is not set up in this version.",
+        tone: "info",
+        text: "This network blocks a direct connection, so edits sync through the cloud copy instead. They may arrive a second or two late.",
       });
     }
     if (this.cloudDown) {
@@ -529,8 +545,8 @@ function copyFor(
       };
     case "ice-failed":
       return {
-        label: "No direct path",
-        detail: "Saved in the cloud and on this device. This network is blocking a direct connection.",
+        label: "Live via cloud",
+        detail: `${people} in this note. Edits sync through the cloud copy.`,
       };
     case "connected":
       return {
@@ -540,7 +556,10 @@ function copyFor(
           : `${people} in this note.`,
       };
     case "connecting":
-      return { label: "Connecting", detail: "Looking for others with this link." };
+      return {
+        label: "Connecting",
+        detail: peerCount > 1 ? `${people} in this note. Edits sync through the cloud until the direct link opens.` : "Looking for others with this link.",
+      };
     case "reconnecting":
       return { label: "Reconnecting", detail: "Trying the connection again." };
     default:

@@ -4,6 +4,16 @@ const DISCONNECT_GRACE_MS = 4_000;
 const RESTART_WAIT_MS = 8_000;
 const BACKOFF_CAP_MS = 15_000;
 
+function fingerprint(sdp: string | undefined): string | null {
+  return sdp?.match(/^a=fingerprint:(.+)$/m)?.[1]?.trim() ?? null;
+}
+
+function remoteWasRebuilt(pc: RTCPeerConnection, offer: RTCSessionDescriptionInit): boolean {
+  const current = fingerprint(pc.remoteDescription?.sdp);
+  const next = fingerprint(offer.sdp);
+  return current !== null && next !== null && current !== next;
+}
+
 export type PeerPhase = "connecting" | "open" | "failed" | "closed";
 
 export type PeerHooks = {
@@ -64,10 +74,16 @@ export class PeerLink {
   }
 
   async receive(payload: SignalPayload): Promise<void> {
-    const pc = this.pc;
+    let pc = this.pc;
     if (!pc || this.closed || pc.signalingState === "closed") return;
     try {
       if (payload.kind === "description") {
+        // A new DTLS fingerprint means the remote side rebuilt its connection; ours can't accept that offer.
+        if (payload.description.type === "offer" && remoteWasRebuilt(pc, payload.description)) {
+          this.replaceNow();
+          pc = this.pc;
+          if (!pc) return;
+        }
         await this.receiveDescription(pc, payload.description);
         return;
       }
@@ -75,7 +91,7 @@ export class PeerLink {
       await this.addCandidate(payload.candidate);
     } catch {
       this.failed = true;
-      this.hooks.onState();
+      this.scheduleReplace();
     }
   }
 
